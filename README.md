@@ -1,4 +1,6 @@
-# Web Workers & The Cache API Article
+# Web Workers & The Cache API
+
+This is the companion source code for the examples I used on the article "Chega de espera: Web Workers e a Cache API" posted at [Pricefy Labs](https://medium.com/pricefy-labs) on Medium.
 
 Let's see those [web workers](https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API) and the [Cache API](https://developer.mozilla.org/en-US/docs/Web/API/Cache) at work. Shall we?
 
