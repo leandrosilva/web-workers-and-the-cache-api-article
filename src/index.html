@@ -1,0 +1,158 @@
+<html>
+
+<head>
+    <title>Pricefy Labs :: Web Workers & The Cache API Article</title>
+
+    <style>
+        .card {
+            padding-bottom: 10px;
+        }
+
+        .visible-element {
+            display: block;
+        }
+
+        .hidden-element {
+            display: none;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>Pricefy Labs</h1>
+    <p>Let's see <a href="https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API" target="_blank">web
+            workers</a> and the <a href="https://developer.mozilla.org/en-US/docs/Web/API/Cache">Cache API</a> at work!</p>
+
+    <div class="card">
+        <h3>URL of a file to download:</h3>
+        <p><input type="text" id="textUrl1" size="70"
+                value="https://pricefy-labs.s3.amazonaws.com/__assets__/Pricefy_Tech_Talk_Labs_01.mp4" /><button
+                type="submit" id="buttonDownload1" onclick="download(textUrl1.value)">Download</button></p>
+        <p><input type="text" id="textUrl2" size="70"
+                value="https://pricefy-labs.s3.amazonaws.com/__assets__/Pricefy_Tech_Talk_Labs_02.mp4" /><button
+                type="submit" id="buttonDownload2" onclick="download(textUrl2.value)">Download</button></p>
+        <p><input type="text" id="textUrl3" size="70"
+                value="https://pricefy-labs.s3.amazonaws.com/__assets__/Pricefy_Tech_Talk_Labs_03.mp4" /><button type="submit"
+                id="buttonDownload3" onclick="download(textUrl3.value)">Download</button></p>
+        <p><input type="text" id="textUrl4" size="70"
+                value="https://pricefy-labs.s3.amazonaws.com/__assets__/bacon-beauty.jpg" /><button
+                type="submit" id="buttonDownload4" onclick="download(textUrl4.value)">Download</button></p>
+    </div>
+
+    <div class="card">
+        <h3>Print out downloads in progress:</h3>
+        <input type="radio" name="radioCurrentDownloads" id="radioCurrentDownloadsYes" value="Yes">Yes
+        <input type="radio" name="radioCurrentDownloads" id="radioCurrentDownloadsNo" value="No" checked>No
+    </div>
+
+    <div class="card">
+        <h3>Last Image Downloaded:</h3>
+        <div class="card">
+            <p id="imageNone" class="visible-element">✔ None yet</p>
+            <img id="imageLast" src="" class="hidden-element" height="150px" />
+            <p id="imageLabel"></p>
+        </div>
+
+        <h3>Last Video Downloaded:</h3>
+        <div class="card">
+            <p id="videoNone" class="visible-element">✔ None yet</p>
+            <video id="videoLast" src="" class="hidden-element" height="150px" autoplay="false" controls="true"></video>
+            <p id="videoLabel"></p>
+        </div>
+    </div>
+
+    <script>
+        // We'll use this to print out in progress downloads
+        const currentDownloads = new Map();
+        setInterval(() => {
+            const shouldPrint = document.getElementById("radioCurrentDownloadsYes").checked;
+            if (shouldPrint) {
+                console.log(">> Current downloads:", currentDownloads);
+            }
+        }, 5000);
+
+        // The actual function that will go ahead, spin off a web worker, and do the
+        // actual download from the given URL.
+        function download(url) {
+            if (!url) {
+                alert("You need to point out an URL to download from!");
+                return;
+            }
+
+            if (!window.Worker) {
+                alert("Sadly your browser doesn't support web workers.");
+                return;
+            }
+
+            const uuid = crypto.randomUUID();
+
+            // Here it it! The Web Worker itself
+            const downloader = new Worker("downloader.js");
+            downloader.onmessage = (event) => {
+                const data = event.data;
+
+                if (data.message) {
+                    console.log(`[${uuid}] Received a message from Downloader:`, data.message);
+
+                    if (data.isDone) {
+                        currentDownloads.delete(uuid);
+
+                        // Now that we have already downloaded it, let's display it from cache
+                        caches.open("assets").then(cache => {
+                            cache.match(url)
+                                .then(res => res.blob())
+                                .then(contentBlob => {
+                                    if (contentBlob.type.startsWith("image")) {
+                                        const imageLast = document.getElementById("imageLast");
+                                        imageLast.src = URL.createObjectURL(contentBlob);
+                                        imageLast.onload = () => {
+                                            // Always garbage collect it
+                                            URL.revokeObjectURL(imageLast.src);
+                                            const imageNone = document.getElementById("imageNone");
+                                            imageNone.classList = "hidden-element";
+                                            imageLast.classList = "visible-element";
+                                            const imageLabel = document.getElementById("imageLabel");
+                                            imageLabel.innerHTML = `${url} (${contentBlob.size} bytes)`;
+                                        };
+                                    } else if (contentBlob.type.startsWith("video")) {
+                                        const videoLast = document.getElementById("videoLast");
+                                        videoLast.src = URL.createObjectURL(contentBlob);
+                                        videoLast.addEventListener('canplay', (event) => {
+                                            // Always garbage collect it
+                                            URL.revokeObjectURL(videoLast.src);
+                                            const videoNone = document.getElementById("videoNone");
+                                            videoNone.classList = "hidden-element";
+                                            videoLast.classList = "visible-element";
+                                            const videoLabel = document.getElementById("videoLabel");
+                                            videoLabel.innerHTML = `${url} (${contentBlob.size} bytes)`;
+                                        });
+                                        videoLast.load();
+                                    } else {
+                                        console.log(`Unknown mime type, don't know what to do (${contentBlob.type})`);
+                                    }
+                                });
+                        })
+                    }
+                }
+                else if (data.error) {
+                    console.log(`[${uuid}] Received an error from Downloader:`, data.error);
+                    currentDownloads.delete(uuid);
+                }
+                else {
+                    console.log(`[${uuid}] Received something from Downloader:`, data);
+                    currentDownloads.delete(uuid);
+                }
+            }
+            downloader.onerror = (error) => {
+                console.log(`[${uuid}] Got an error from Downloader:`, error.message);
+                currentDownloads.delete(uuid);
+            }
+
+            console.log(`[${uuid}] Issuing download of "${url}"`);
+            currentDownloads.set(uuid, url);
+            downloader.postMessage([uuid, url]);
+        }
+    </script>
+</body>
+
+</html>
